@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var hotKey: HotKey?
     private var keyMonitor: Any?
+    private var outsideClickMonitor: Any?
     /// The app in front before the popover opened; pastes go back to it.
     private var previousApp: NSRunningApplication?
     private var askedForAccessibility = false
@@ -81,6 +82,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         installKeyMonitor()
+        // A transient popover misses clicks on other apps and the desktop, so watch for those too.
+        if outsideClickMonitor == nil {
+            outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
+                MainActor.assumeIsolated {
+                    guard let self, self.popover.isShown else { return }
+                    self.popover.performClose(nil)
+                }
+            }
+        }
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        if popover.isShown { popover.performClose(nil) }
     }
 
     private func requestAccessibilityIfNeeded() {
@@ -111,6 +125,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     func popoverDidClose(_ notification: Notification) {
         if let keyMonitor { NSEvent.removeMonitor(keyMonitor) }
         keyMonitor = nil
+        if let outsideClickMonitor { NSEvent.removeMonitor(outsideClickMonitor) }
+        outsideClickMonitor = nil
         // Hand focus back to the app the user was working in.
         NSApp.hide(nil)
     }

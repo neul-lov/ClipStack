@@ -55,6 +55,7 @@ struct ClipItem: Identifiable, Codable, Equatable {
 }
 
 enum JoinSeparator: String, CaseIterable, Identifiable, Codable {
+    case nothing
     case newLine
     case blankLine
     case space
@@ -64,6 +65,7 @@ enum JoinSeparator: String, CaseIterable, Identifiable, Codable {
 
     var title: String {
         switch self {
+        case .nothing: "Nothing"
         case .newLine: "New Line"
         case .blankLine: "Blank Line"
         case .space: "Space"
@@ -73,6 +75,7 @@ enum JoinSeparator: String, CaseIterable, Identifiable, Codable {
 
     var value: String {
         switch self {
+        case .nothing: ""
         case .newLine: "\n"
         case .blankLine: "\n\n"
         case .space: " "

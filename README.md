@@ -16,7 +16,7 @@ The app icon is drawn by `scripts/make-icon.swift`; run `swift scripts/make-icon
 
 - Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere.
 - Click clips to select them; the number on each shows its place in the order.
-- ⏎ or **Copy N Items** copies the selection, joined with line breaks (change this under the ••• menu).
+- ⏎ or **Copy N Items** copies the selection back to back with nothing in between (add line breaks, spaces or commas under the ••• menu).
 - Hover a clip to pin it, copy only that clip, or delete it.
 - Keyboard: ↑ ↓ move, ⇥ select, ⏎ copy, ⌘P pin, ⌘⌫ delete, esc clears the selection, then the search, then closes.
 

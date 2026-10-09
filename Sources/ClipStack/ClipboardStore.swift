@@ -41,7 +41,7 @@ final class ClipboardStore: ObservableObject {
     ]
 
     init() {
-        separator = JoinSeparator(rawValue: UserDefaults.standard.string(forKey: "separator") ?? "") ?? .newLine
+        separator = JoinSeparator(rawValue: UserDefaults.standard.string(forKey: "separator") ?? "") ?? .nothing
         lastChangeCount = NSPasteboard.general.changeCount
         items = Self.load()
     }
@@ -179,7 +179,8 @@ final class ClipboardStore: ObservableObject {
             return
         }
 
-        let texts = chosen.compactMap(\.text)
+        // Line breaks at the ends of a clip would otherwise leak into the joined result.
+        let texts = chosen.compactMap(\.text).map { $0.trimmingCharacters(in: .newlines) }
         let images = chosen.compactMap(\.imageData).compactMap(NSImage.init(data:))
         var objects: [NSPasteboardWriting] = []
         if !texts.isEmpty { objects.append(texts.joined(separator: separator.value) as NSString) }

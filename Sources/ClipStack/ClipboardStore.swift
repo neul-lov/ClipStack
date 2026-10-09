@@ -45,7 +45,7 @@ final class ClipboardStore: ObservableObject {
     private var lastTap: (id: UUID, time: Date, selectionBefore: [UUID])?
     /// While dragging: true selects the clips passed over, false deselects them.
     private var dragSelects: Bool?
-    private var dragVisited: Set<UUID> = []
+    private var dragBaseSelection: [UUID] = []
     private var dragEndedAt: Date?
 
     private static let ignoredTypes: Set<String> = [
@@ -188,28 +188,29 @@ final class ClipboardStore: ObservableObject {
         toggle(id)
     }
 
-    func drag(over id: UUID?) {
-        guard let id else { return }
+    /// Called as a drag moves. `ids` are the clips between the drag's start and the pointer, nearest
+    /// to the start first. Starting on a selected clip deselects; starting anywhere else selects.
+    func drag(across ids: [UUID], startedOn startID: UUID?) {
         if dragSelects == nil {
-            dragSelects = !selection.contains(id)
-            dragVisited = []
+            dragSelects = !(startID.map(selection.contains) ?? false)
+            dragBaseSelection = selection
             lastTap = nil
         }
-        guard dragVisited.insert(id).inserted, let selecting = dragSelects else { return }
+        guard let selecting = dragSelects else { return }
+        let next = selecting
+            ? dragBaseSelection + ids.filter { !dragBaseSelection.contains($0) }
+            : dragBaseSelection.filter { !ids.contains($0) }
+        guard next != selection else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
-            if selecting {
-                if !selection.contains(id) { selection.append(id) }
-            } else {
-                selection.removeAll { $0 == id }
-            }
-            highlightedID = id
+            selection = next
+            if let last = ids.last { highlightedID = last }
         }
     }
 
     func endDrag() {
         guard dragSelects != nil else { return }
         dragSelects = nil
-        dragVisited = []
+        dragBaseSelection = []
         dragEndedAt = Date()
     }
 

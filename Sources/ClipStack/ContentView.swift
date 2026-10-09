@@ -145,8 +145,8 @@ struct ContentView: View {
                     .simultaneousGesture(
                         DragGesture(minimumDistance: 6, coordinateSpace: .named("clipList"))
                             .onChanged { value in
-                                store.drag(over: clip(at: value.startLocation))
-                                store.drag(over: clip(at: value.location))
+                                store.drag(across: clips(from: value.startLocation, to: value.location),
+                                           startedOn: clip(at: value.startLocation))
                             }
                             .onEnded { _ in store.endDrag() }
                     )
@@ -181,6 +181,16 @@ struct ContentView: View {
 
     private func clip(at point: CGPoint) -> UUID? {
         rowFrames.first { $0.value.contains(point) }?.key
+    }
+
+    /// Clips whose rows overlap the vertical span of a drag, nearest to its start first.
+    /// Only height matters, so a drag can start beside or between clips.
+    private func clips(from start: CGPoint, to end: CGPoint) -> [UUID] {
+        let top = min(start.y, end.y), bottom = max(start.y, end.y)
+        return rowFrames
+            .filter { $0.value.maxY >= top && $0.value.minY <= bottom }
+            .sorted { abs($0.value.midY - start.y) < abs($1.value.midY - start.y) }
+            .map(\.key)
     }
 
     private func sectionTitle(_ title: String, icon: String) -> some View {

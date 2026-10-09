@@ -213,6 +213,13 @@ final class ClipboardStore: ObservableObject {
         dragEndedAt = Date()
     }
 
+    /// Clicking empty space clears the selection, except for the click that ends a drag.
+    func tapEmptySpace() {
+        if dragSelects != nil { return }
+        if let dragEndedAt, Date().timeIntervalSince(dragEndedAt) < 0.3 { return }
+        clearSelection()
+    }
+
     func clearSelection() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             selection.removeAll()

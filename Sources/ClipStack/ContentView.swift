@@ -51,6 +51,8 @@ struct ContentView: View {
         .padding(.horizontal, 16)
         .padding(.top, 14)
         .padding(.bottom, 10)
+        .contentShape(Rectangle())
+        .onTapGesture { store.tapEmptySpace() }
     }
 
     private var settingsMenu: some View {
@@ -124,6 +126,7 @@ struct ContentView: View {
         if pinned.isEmpty && recent.isEmpty {
             emptyState
         } else {
+            GeometryReader { geometry in
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(spacing: 4, pinnedViews: []) {
@@ -147,12 +150,17 @@ struct ContentView: View {
                             }
                             .onEnded { _ in store.endDrag() }
                     )
+                    // Fill the visible area so clicks on the empty space below the clips land here.
+                    .frame(minHeight: geometry.size.height, alignment: .top)
+                    .contentShape(Rectangle())
+                    .onTapGesture { store.tapEmptySpace() }
                 }
                 .scrollIndicators(.never)
                 .onChange(of: store.highlightedID) { _, id in
                     guard let id else { return }
                     withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
                 }
+            }
             }
         }
     }

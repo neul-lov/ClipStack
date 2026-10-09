@@ -6,6 +6,7 @@ struct ContentView: View {
 
     @ObservedObject var store: ClipboardStore
     @FocusState private var searchFocused: Bool
+    @State private var rowFrames: [UUID: CGRect] = [:]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -135,6 +136,17 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
+                    .coordinateSpace(name: "clipList")
+                    .onPreferenceChange(RowFramesKey.self) { rowFrames = $0 }
+                    // Dragging across clips selects (or, starting on a selected clip, deselects) them.
+                    .simultaneousGesture(
+                        DragGesture(minimumDistance: 6, coordinateSpace: .named("clipList"))
+                            .onChanged { value in
+                                store.drag(over: clip(at: value.startLocation))
+                                store.drag(over: clip(at: value.location))
+                            }
+                            .onEnded { _ in store.endDrag() }
+                    )
                 }
                 .scrollIndicators(.never)
                 .onChange(of: store.highlightedID) { _, id in
@@ -151,8 +163,16 @@ struct ContentView: View {
                 highlighted: store.highlightedID == item.id,
                 store: store)
             .id(item.id)
+            .background(GeometryReader { geometry in
+                Color.clear.preference(key: RowFramesKey.self,
+                                       value: [item.id: geometry.frame(in: .named("clipList"))])
+            })
             .transition(.asymmetric(insertion: .move(edge: .top).combined(with: .opacity),
                                     removal: .opacity.combined(with: .scale(scale: 0.95))))
+    }
+
+    private func clip(at point: CGPoint) -> UUID? {
+        rowFrames.first { $0.value.contains(point) }?.key
     }
 
     private func sectionTitle(_ title: String, icon: String) -> some View {
@@ -322,5 +342,12 @@ struct PressableStyle: ButtonStyle {
         configuration.label
             .scaleEffect(configuration.isPressed ? 0.95 : 1)
             .animation(.spring(response: 0.25, dampingFraction: 0.7), value: configuration.isPressed)
+    }
+}
+
+private struct RowFramesKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue()) { $1 }
     }
 }

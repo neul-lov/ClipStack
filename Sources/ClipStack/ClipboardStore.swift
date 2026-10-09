@@ -43,6 +43,10 @@ final class ClipboardStore: ObservableObject {
     private var thumbnails: [UUID: NSImage] = [:]
     private var appIcons: [String: NSImage] = [:]
     private var lastTap: (id: UUID, time: Date, selectionBefore: [UUID])?
+    /// While dragging: true selects the clips passed over, false deselects them.
+    private var dragSelects: Bool?
+    private var dragVisited: Set<UUID> = []
+    private var dragEndedAt: Date?
 
     private static let ignoredTypes: Set<String> = [
         "org.nspasteboard.ConcealedType",
@@ -168,6 +172,9 @@ final class ClipboardStore: ObservableObject {
     /// A click toggles selection; a second click on the same clip within the double-click interval
     /// undoes that toggle and copies just that clip.
     func tap(_ id: UUID) {
+        // The mouse-up that ends a drag also reaches the row as a click.
+        if dragSelects != nil { return }
+        if let dragEndedAt, Date().timeIntervalSince(dragEndedAt) < 0.3 { return }
         let now = Date()
         if let last = lastTap, last.id == id, now.timeIntervalSince(last.time) < min(NSEvent.doubleClickInterval, 0.35) {
             lastTap = nil
@@ -179,6 +186,31 @@ final class ClipboardStore: ObservableObject {
         }
         lastTap = (id, now, selection)
         toggle(id)
+    }
+
+    func drag(over id: UUID?) {
+        guard let id else { return }
+        if dragSelects == nil {
+            dragSelects = !selection.contains(id)
+            dragVisited = []
+            lastTap = nil
+        }
+        guard dragVisited.insert(id).inserted, let selecting = dragSelects else { return }
+        withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
+            if selecting {
+                if !selection.contains(id) { selection.append(id) }
+            } else {
+                selection.removeAll { $0 == id }
+            }
+            highlightedID = id
+        }
+    }
+
+    func endDrag() {
+        guard dragSelects != nil else { return }
+        dragSelects = nil
+        dragVisited = []
+        dragEndedAt = Date()
     }
 
     func clearSelection() {

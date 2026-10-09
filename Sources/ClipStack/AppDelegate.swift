@@ -49,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         store.onRequestClose = { [weak self] in self?.popover.performClose(nil) }
         store.onRequestPaste = { [weak self] in self?.pasteIntoPreviousApp() }
         store.start()
+        // Ask for Accessibility up front so the first paste already works.
+        if store.pasteAfterCopy { requestAccessibilityIfNeeded() }
 
         // Control + Command + V opens the history from anywhere.
         hotKey = HotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | controlKey)) { [weak self] in
@@ -81,15 +83,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         installKeyMonitor()
     }
 
+    private func requestAccessibilityIfNeeded() {
+        guard !askedForAccessibility, !AXIsProcessTrusted() else { return }
+        askedForAccessibility = true
+        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+        AXIsProcessTrustedWithOptions(options)
+    }
+
     private func pasteIntoPreviousApp() {
         popover.performClose(nil)
         // Sending ⌘V to another app needs Accessibility access. Without it the clip is still copied.
         guard AXIsProcessTrusted() else {
-            if !askedForAccessibility {
-                askedForAccessibility = true
-                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
-                AXIsProcessTrustedWithOptions(options)
-            }
+            requestAccessibilityIfNeeded()
             return
         }
         previousApp?.activate()

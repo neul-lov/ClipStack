@@ -50,6 +50,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         store.onRequestClose = { [weak self] in self?.popover.performClose(nil) }
         store.onRequestPaste = { [weak self] in self?.pasteIntoPreviousApp() }
         store.start()
+        #if DEBUG
+        if CommandLine.arguments.contains("--demo") {
+            runDemo()
+            return
+        }
+        #endif
         // Ask for Accessibility up front so the first paste already works.
         if store.pasteAfterCopy { requestAccessibilityIfNeeded() }
 
@@ -86,7 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if outsideClickMonitor == nil {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 MainActor.assumeIsolated {
-                    guard let self, self.popover.isShown else { return }
+                    guard let self, self.popover.isShown, !self.store.isDemo else { return }
                     // Clicks on the popover itself or the menu bar icon can arrive here while the
                     // app is still becoming active; only a click somewhere else closes it.
                     let point = NSEvent.mouseLocation
@@ -102,7 +108,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // Activation can flicker while the popover opens or is clicked; close only if another app
         // really took over.
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self, self.popover.isShown, !NSApp.isActive else { return }
+            guard let self, self.popover.isShown, !NSApp.isActive, !self.store.isDemo else { return }
             self.popover.performClose(nil)
         }
     }
@@ -177,4 +183,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         return true
     }
+
+    #if DEBUG
+    /// Plays a scripted walkthrough with sample clips, for recording the README demo.
+    private func runDemo() {
+        setvbuf(stdout, nil, _IONBF, 0)
+        store.loadDemoItems()
+        let steps: [(TimeInterval, () -> Void)] = [
+            (0.4, { [self] in
+                showPopover()
+                if let window = popover.contentViewController?.view.window {
+                    print("DEMO_WINDOW \(window.windowNumber)")
+                }
+            }),
+            (1.6, { [self] in store.demoSelect(0) }),
+            (2.3, { [self] in store.demoSelect(2) }),
+            (3.0, { [self] in store.demoSelect(1) }),
+            (4.4, { [self] in store.copySelection() }),
+            (7.0, { print("DEMO_DONE") }),
+        ]
+        for (delay, step) in steps {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: step)
+        }
+    }
+    #endif
 }

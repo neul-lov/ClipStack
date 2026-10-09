@@ -31,6 +31,8 @@ final class ClipboardStore: ObservableObject {
     }
 
     var onRequestClose: (() -> Void)?
+    /// Demo mode (debug builds only) uses sample clips and never touches the real history or clipboard.
+    private(set) var isDemo = false
     /// Closes the popover and pastes into the app that was in front before it opened.
     var onRequestPaste: (() -> Void)?
 
@@ -101,6 +103,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func poll() {
+        guard !isDemo else { return }
         let count = pasteboard.changeCount
         guard count != lastChangeCount else { return }
         lastChangeCount = count
@@ -318,6 +321,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func write(_ objects: [NSPasteboardWriting]) {
+        guard !isDemo else { return }
         pasteboard.clearContents()
         pasteboard.writeObjects(objects)
         // Our own writes should not show up as new history entries.
@@ -329,6 +333,15 @@ final class ClipboardStore: ObservableObject {
             toast = message
         }
         let paste = pasteAfterCopy
+        if isDemo {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    self?.toast = nil
+                    self?.selection.removeAll()
+                }
+            }
+            return
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + (paste ? 0.35 : 0.55)) { [weak self] in
             if paste {
                 self?.onRequestPaste?()
@@ -436,6 +449,7 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func scheduleSave() {
+        guard !isDemo else { return }
         saveWork?.cancel()
         let snapshot = items
         let work = DispatchWorkItem {
@@ -446,3 +460,32 @@ final class ClipboardStore: ObservableObject {
         DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1, execute: work)
     }
 }
+
+#if DEBUG
+extension ClipboardStore {
+    func loadDemoItems() {
+        isDemo = true
+        let samples: [(String, String, String, TimeInterval)] = [
+            ("Hi team, here's the summary from today's sync:", "com.apple.mail", "Mail", 20),
+            ("https://github.com/neul-lov/ClipStack", "com.apple.Safari", "Safari", 95),
+            ("Ship v1.2 on Friday after QA sign-off.", "com.apple.Notes", "Notes", 300),
+            ("brew install --cask neul-lov/tap/clipstack", "com.apple.Terminal", "Terminal", 900),
+            ("Thanks for the quick review! 🙌", "com.apple.MobileSMS", "Messages", 2400),
+            ("SELECT name, email FROM users WHERE active = 1;", "com.microsoft.VSCode", "Visual Studio Code", 5400),
+        ]
+        selection = []
+        items = samples.map { text, bundleID, appName, age in
+            var item = ClipItem(text: text, source: nil)
+            item.sourceBundleID = bundleID
+            item.sourceAppName = appName
+            item.date = Date().addingTimeInterval(-age)
+            return item
+        }
+    }
+
+    func demoSelect(_ index: Int) {
+        guard visibleItems.indices.contains(index) else { return }
+        toggle(visibleItems[index].id)
+    }
+}
+#endif

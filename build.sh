@@ -1,5 +1,7 @@
 #!/bin/zsh
-# Builds ClipStack.app into ./build. Pass --install to copy it to /Applications as well.
+# Builds ClipStack.app into ./build.
+#   --install  also copies it to /Applications
+#   --dmg      also packages build/ClipStack.dmg for a release
 set -euo pipefail
 cd "$(dirname "$0")"
 
@@ -22,7 +24,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundleExecutable</key><string>ClipStack</string>
     <key>CFBundleIconFile</key><string>AppIcon</string>
     <key>CFBundlePackageType</key><string>APPL</string>
-    <key>CFBundleShortVersionString</key><string>1.0</string>
+    <key>CFBundleShortVersionString</key><string>1.0.0</string>
     <key>CFBundleVersion</key><string>1</string>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>LSUIElement</key><true/>
@@ -38,4 +40,15 @@ if [[ "${1:-}" == "--install" ]]; then
     rm -rf /Applications/ClipStack.app
     cp -R "$APP" /Applications/
     echo "Installed to /Applications/ClipStack.app"
+fi
+
+if [[ "${1:-}" == "--dmg" ]]; then
+    STAGE=build/dmg
+    rm -rf "$STAGE" build/ClipStack.dmg
+    mkdir -p "$STAGE"
+    cp -R "$APP" "$STAGE/"
+    ln -s /Applications "$STAGE/Applications"
+    hdiutil create -volname ClipStack -srcfolder "$STAGE" -ov -format UDZO build/ClipStack.dmg >/dev/null
+    rm -rf "$STAGE"
+    echo "Packaged build/ClipStack.dmg"
 fi

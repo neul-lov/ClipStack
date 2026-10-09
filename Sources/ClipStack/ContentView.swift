@@ -212,7 +212,16 @@ struct ContentView: View {
                     }
                     .buttonStyle(PressableStyle())
 
-                    Spacer()
+                    if let text = store.selectedText {
+                        Text(ClipboardStore.charCount(text))
+                            .font(.system(size: 11, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .monospacedDigit()
+                            .contentTransition(.numericText())
+                            .lineLimit(1)
+                    }
+
+                    Spacer(minLength: 4)
 
                     Menu {
                         Section("Copy As") {

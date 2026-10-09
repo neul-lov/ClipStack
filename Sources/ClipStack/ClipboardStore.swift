@@ -226,22 +226,43 @@ final class ClipboardStore: ObservableObject {
             return
         }
 
-        // Line breaks at the ends of a clip would otherwise leak into the joined result.
-        let texts = chosen.compactMap(\.text).map { $0.trimmingCharacters(in: .newlines) }
         let images = chosen.compactMap(\.imageData).compactMap(NSImage.init(data:))
         var objects: [NSPasteboardWriting] = []
-        if !texts.isEmpty {
-            let joined = texts.joined(separator: separator.value)
-            objects.append((transform?.apply(to: joined) ?? joined) as NSString)
+        var message = "Copied \(chosen.count) items"
+        if let joined = joinedText(of: chosen) {
+            let text = transform?.apply(to: joined) ?? joined
+            objects.append(text as NSString)
+            message += " · \(Self.charCount(text))"
         }
         objects.append(contentsOf: images)
         write(objects)
-        finishCopy(message: "Copied \(chosen.count) items")
+        finishCopy(message: message)
+    }
+
+    /// The selection's text as it will be copied, or nil when only images are selected.
+    var selectedText: String? {
+        joinedText(of: selection.compactMap { id in items.first { $0.id == id } })
+    }
+
+    private func joinedText(of chosen: [ClipItem]) -> String? {
+        let texts = chosen.compactMap(\.text)
+        guard !texts.isEmpty else { return nil }
+        if texts.count == 1 { return texts[0] }
+        // Line breaks at the ends of a clip would otherwise leak into the joined result.
+        return texts.map { $0.trimmingCharacters(in: .newlines) }.joined(separator: separator.value)
+    }
+
+    /// Character count including spaces and line breaks.
+    static func charCount(_ text: String) -> String {
+        text.count == 1 ? "1 char" : "\(text.count) chars"
     }
 
     func copy(_ item: ClipItem, transform: TextTransform? = nil) {
+        var message = "Copied"
         if let text = item.text {
-            write([(transform?.apply(to: text) ?? text) as NSString])
+            let output = transform?.apply(to: text) ?? text
+            write([output as NSString])
+            message += " · \(Self.charCount(output))"
         } else if let data = item.imageData, let image = NSImage(data: data) {
             write([image])
         }
@@ -253,7 +274,7 @@ final class ClipboardStore: ObservableObject {
                 items.insert(moved, at: 0)
             }
         }
-        finishCopy(message: "Copied")
+        finishCopy(message: message)
     }
 
     private func write(_ objects: [NSPasteboardWriting]) {

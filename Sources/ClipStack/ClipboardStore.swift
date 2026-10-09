@@ -169,7 +169,7 @@ final class ClipboardStore: ObservableObject {
     /// undoes that toggle and copies just that clip.
     func tap(_ id: UUID) {
         let now = Date()
-        if let last = lastTap, last.id == id, now.timeIntervalSince(last.time) < NSEvent.doubleClickInterval {
+        if let last = lastTap, last.id == id, now.timeIntervalSince(last.time) < min(NSEvent.doubleClickInterval, 0.35) {
             lastTap = nil
             withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
                 selection = last.selectionBefore

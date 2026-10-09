@@ -87,6 +87,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
                 MainActor.assumeIsolated {
                     guard let self, self.popover.isShown else { return }
+                    // Clicks on the popover itself or the menu bar icon can arrive here while the
+                    // app is still becoming active; only a click somewhere else closes it.
+                    let point = NSEvent.mouseLocation
+                    let ownWindows = [self.popover.contentViewController?.view.window, self.statusItem.button?.window]
+                    guard !ownWindows.contains(where: { $0?.frame.contains(point) == true }) else { return }
                     self.popover.performClose(nil)
                 }
             }
@@ -94,7 +99,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     func applicationDidResignActive(_ notification: Notification) {
-        if popover.isShown { popover.performClose(nil) }
+        // Activation can flicker while the popover opens or is clicked; close only if another app
+        // really took over.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.popover.isShown, !NSApp.isActive else { return }
+            self.popover.performClose(nil)
+        }
     }
 
     private func requestAccessibilityIfNeeded() {

@@ -15,8 +15,11 @@ The app icon is drawn by `scripts/make-icon.swift`; run `swift scripts/make-icon
 ## Using it
 
 - Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere.
-- Click clips to select them; the number on each shows its place in the order.
+- Click clips to select them; the number on each shows its place in the order. Double-click a clip to copy just that one.
 - ⏎ or **Copy N Items** copies the selection back to back with nothing in between (add line breaks, spaces or commas under the ••• menu).
+- After copying, ClipStack pastes into the app you were using (needs Accessibility access once; turn off with **Paste After Copying** in the ••• menu).
+- The wand button next to **Copy**, or right-clicking a clip, offers **Copy As**: trim spaces, single line, UPPERCASE, lowercase, Title Case, or remove quotes.
+- **Keep History** in the ••• menu removes unpinned clips after 1 day, 1 week, or 1 month.
 - Hover a clip to pin it, copy only that clip, or delete it.
 - Keyboard: ↑ ↓ move, ⇥ select, ⏎ copy, ⌘P pin, ⌘⌫ delete, esc clears the selection, then the search, then closes.
 

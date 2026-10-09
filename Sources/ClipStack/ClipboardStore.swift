@@ -20,8 +20,19 @@ final class ClipboardStore: ObservableObject {
         didSet { UserDefaults.standard.set(separator.rawValue, forKey: "separator") }
     }
     @Published var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
+    @Published var pasteAfterCopy: Bool {
+        didSet { UserDefaults.standard.set(pasteAfterCopy, forKey: "pasteAfterCopy") }
+    }
+    @Published var retention: Retention {
+        didSet {
+            UserDefaults.standard.set(retention.rawValue, forKey: "retention")
+            pruneExpired()
+        }
+    }
 
     var onRequestClose: (() -> Void)?
+    /// Closes the popover and pastes into the app that was in front before it opened.
+    var onRequestPaste: (() -> Void)?
 
     private let maxItems = 200
     private let maxImageBytes = 8 * 1024 * 1024
@@ -31,6 +42,7 @@ final class ClipboardStore: ObservableObject {
     private var saveWork: DispatchWorkItem?
     private var thumbnails: [UUID: NSImage] = [:]
     private var appIcons: [String: NSImage] = [:]
+    private var lastTap: (id: UUID, time: Date, selectionBefore: [UUID])?
 
     private static let ignoredTypes: Set<String> = [
         "org.nspasteboard.ConcealedType",
@@ -42,6 +54,8 @@ final class ClipboardStore: ObservableObject {
 
     init() {
         separator = JoinSeparator(rawValue: UserDefaults.standard.string(forKey: "separator") ?? "") ?? .nothing
+        pasteAfterCopy = UserDefaults.standard.object(forKey: "pasteAfterCopy") as? Bool ?? true
+        retention = Retention(rawValue: UserDefaults.standard.string(forKey: "retention") ?? "") ?? .forever
         lastChangeCount = NSPasteboard.general.changeCount
         items = Self.load()
     }
@@ -63,6 +77,23 @@ final class ClipboardStore: ObservableObject {
             MainActor.assumeIsolated { self?.poll() }
         }
         timer?.tolerance = 0.1
+        pruneExpired()
+        Timer.scheduledTimer(withTimeInterval: 600, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.pruneExpired() }
+        }
+    }
+
+    /// Drops unpinned clips older than the chosen history limit.
+    func pruneExpired() {
+        guard let maxAge = retention.maxAge else { return }
+        let cutoff = Date().addingTimeInterval(-maxAge)
+        let expired = items.filter { !$0.pinned && $0.date < cutoff }.map(\.id)
+        guard !expired.isEmpty else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+            items.removeAll { expired.contains($0.id) }
+            selection.removeAll { expired.contains($0) }
+            expired.forEach { thumbnails[$0] = nil }
+        }
     }
 
     private func poll() {
@@ -134,6 +165,22 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
+    /// A click toggles selection; a second click on the same clip within the double-click interval
+    /// undoes that toggle and copies just that clip.
+    func tap(_ id: UUID) {
+        let now = Date()
+        if let last = lastTap, last.id == id, now.timeIntervalSince(last.time) < NSEvent.doubleClickInterval {
+            lastTap = nil
+            withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
+                selection = last.selectionBefore
+            }
+            if let item = items.first(where: { $0.id == id }) { copy(item) }
+            return
+        }
+        lastTap = (id, now, selection)
+        toggle(id)
+    }
+
     func clearSelection() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
             selection.removeAll()
@@ -171,11 +218,11 @@ final class ClipboardStore: ObservableObject {
         }
     }
 
-    func copySelection() {
+    func copySelection(transform: TextTransform? = nil) {
         let chosen = selection.compactMap { id in items.first { $0.id == id } }
         guard !chosen.isEmpty else { return }
         if chosen.count == 1 {
-            copy(chosen[0])
+            copy(chosen[0], transform: transform)
             return
         }
 
@@ -183,15 +230,18 @@ final class ClipboardStore: ObservableObject {
         let texts = chosen.compactMap(\.text).map { $0.trimmingCharacters(in: .newlines) }
         let images = chosen.compactMap(\.imageData).compactMap(NSImage.init(data:))
         var objects: [NSPasteboardWriting] = []
-        if !texts.isEmpty { objects.append(texts.joined(separator: separator.value) as NSString) }
+        if !texts.isEmpty {
+            let joined = texts.joined(separator: separator.value)
+            objects.append((transform?.apply(to: joined) ?? joined) as NSString)
+        }
         objects.append(contentsOf: images)
         write(objects)
         finishCopy(message: "Copied \(chosen.count) items")
     }
 
-    func copy(_ item: ClipItem) {
+    func copy(_ item: ClipItem, transform: TextTransform? = nil) {
         if let text = item.text {
-            write([text as NSString])
+            write([(transform?.apply(to: text) ?? text) as NSString])
         } else if let data = item.imageData, let image = NSImage(data: data) {
             write([image])
         }
@@ -217,8 +267,13 @@ final class ClipboardStore: ObservableObject {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             toast = message
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.55) { [weak self] in
-            self?.onRequestClose?()
+        let paste = pasteAfterCopy
+        DispatchQueue.main.asyncAfter(deadline: .now() + (paste ? 0.35 : 0.55)) { [weak self] in
+            if paste {
+                self?.onRequestPaste?()
+            } else {
+                self?.onRequestClose?()
+            }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
             guard let self else { return }
@@ -280,6 +335,8 @@ final class ClipboardStore: ObservableObject {
     // MARK: - Popover lifecycle
 
     func didOpen() {
+        pruneExpired()
+        lastTap = nil
         query = ""
         highlightedID = visibleItems.first?.id
         openToken += 1

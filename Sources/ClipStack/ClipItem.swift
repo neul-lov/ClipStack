@@ -97,3 +97,87 @@ extension Date {
         return formatted(.dateTime.month(.abbreviated).day())
     }
 }
+
+enum Retention: String, CaseIterable, Identifiable {
+    case forever
+    case day
+    case week
+    case month
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .forever: "Forever"
+        case .day: "1 Day"
+        case .week: "1 Week"
+        case .month: "1 Month"
+        }
+    }
+
+    /// Clips older than this are removed, unless pinned.
+    var maxAge: TimeInterval? {
+        switch self {
+        case .forever: nil
+        case .day: 60 * 60 * 24
+        case .week: 60 * 60 * 24 * 7
+        case .month: 60 * 60 * 24 * 30
+        }
+    }
+}
+
+enum TextTransform: String, CaseIterable, Identifiable {
+    case trimSpaces
+    case singleLine
+    case uppercase
+    case lowercase
+    case titleCase
+    case removeQuotes
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .trimSpaces: "Trim Spaces"
+        case .singleLine: "Single Line"
+        case .uppercase: "UPPERCASE"
+        case .lowercase: "lowercase"
+        case .titleCase: "Title Case"
+        case .removeQuotes: "Remove Quotes"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .trimSpaces: "scissors"
+        case .singleLine: "arrow.right.to.line"
+        case .uppercase: "textformat.size.larger"
+        case .lowercase: "textformat.size.smaller"
+        case .titleCase: "textformat"
+        case .removeQuotes: "quote.opening"
+        }
+    }
+
+    func apply(to text: String) -> String {
+        switch self {
+        case .trimSpaces:
+            // Trim each line and squeeze runs of spaces or tabs into one space.
+            return text.components(separatedBy: .newlines)
+                .map { $0.replacingOccurrences(of: "[ \t]+", with: " ", options: .regularExpression)
+                    .trimmingCharacters(in: .whitespaces) }
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        case .singleLine:
+            return text.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+                .trimmingCharacters(in: .whitespaces)
+        case .uppercase:
+            return text.uppercased()
+        case .lowercase:
+            return text.lowercased()
+        case .titleCase:
+            return text.capitalized
+        case .removeQuotes:
+            return text.replacingOccurrences(of: "[\"'`“”‘’«»]", with: "", options: .regularExpression)
+        }
+    }
+}

@@ -57,6 +57,10 @@ struct ContentView: View {
             Picker("Join Multiple Items With", selection: $store.separator) {
                 ForEach(JoinSeparator.allCases) { Text($0.title).tag($0) }
             }
+            Picker("Keep History", selection: $store.retention) {
+                ForEach(Retention.allCases) { Text($0.title).tag($0) }
+            }
+            Toggle("Paste After Copying", isOn: $store.pasteAfterCopy)
             Toggle("Launch at Login", isOn: Binding(
                 get: { store.launchAtLogin },
                 set: { store.setLaunchAtLogin($0) }
@@ -190,8 +194,7 @@ struct ContentView: View {
             if store.selection.isEmpty {
                 HStack(spacing: 14) {
                     hint("Click", "select")
-                    hint("⏎", "copy")
-                    hint("⇥", "select")
+                    hint("Click ×2", "copy")
                     Spacer()
                     hint("⌃⌘V", "open")
                 }
@@ -210,6 +213,28 @@ struct ContentView: View {
                     .buttonStyle(PressableStyle())
 
                     Spacer()
+
+                    Menu {
+                        Section("Copy As") {
+                            ForEach(TextTransform.allCases) { transform in
+                                Button {
+                                    store.copySelection(transform: transform)
+                                } label: {
+                                    Label(transform.title, systemImage: transform.icon)
+                                }
+                            }
+                        }
+                    } label: {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.secondary)
+                            .frame(width: 32, height: 32)
+                            .background(Circle().fill(Color.primary.opacity(0.07)))
+                    }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .help("Copy As")
 
                     Button {
                         store.copySelection()

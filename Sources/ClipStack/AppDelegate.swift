@@ -21,6 +21,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let popover = NSPopover()
     private var hotKey: HotKey?
     private var keyMonitor: Any?
+    /// The app in front before the popover opened; pastes go back to it.
+    private var previousApp: NSRunningApplication?
+    private var askedForAccessibility = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // New status items land at the far left of the menu bar, where menu bar managers hide them.
@@ -44,6 +47,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController = NSHostingController(rootView: ContentView(store: store))
 
         store.onRequestClose = { [weak self] in self?.popover.performClose(nil) }
+        store.onRequestPaste = { [weak self] in self?.pasteIntoPreviousApp() }
         store.start()
 
         // Control + Command + V opens the history from anywhere.
@@ -69,10 +73,34 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func showPopover() {
         guard let button = statusItem.button else { return }
         store.didOpen()
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
         NSApp.activate(ignoringOtherApps: true)
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         popover.contentViewController?.view.window?.makeKey()
         installKeyMonitor()
+    }
+
+    private func pasteIntoPreviousApp() {
+        popover.performClose(nil)
+        // Sending ⌘V to another app needs Accessibility access. Without it the clip is still copied.
+        guard AXIsProcessTrusted() else {
+            if !askedForAccessibility {
+                askedForAccessibility = true
+                let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
+                AXIsProcessTrustedWithOptions(options)
+            }
+            return
+        }
+        previousApp?.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+            let source = CGEventSource(stateID: .combinedSessionState)
+            for keyDown in [true, false] {
+                let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(kVK_ANSI_V), keyDown: keyDown)
+                event?.flags = .maskCommand
+                event?.post(tap: .cghidEventTap)
+            }
+        }
     }
 
     func popoverDidClose(_ notification: Notification) {

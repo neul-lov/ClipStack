@@ -36,7 +36,20 @@ struct ClipRow: View {
                 .strokeBorder(Color.accentColor.opacity(selected ? 0.45 : 0), lineWidth: 1)
         )
         .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .onTapGesture { store.toggle(item.id) }
+        .onTapGesture { store.tap(item.id) }
+        .contextMenu {
+            Button("Copy") { store.copy(item) }
+            if item.kind == .text {
+                Menu("Copy As") {
+                    ForEach(TextTransform.allCases) { transform in
+                        Button(transform.title) { store.copy(item, transform: transform) }
+                    }
+                }
+            }
+            Divider()
+            Button(item.pinned ? "Unpin" : "Pin") { store.togglePin(item.id) }
+            Button("Delete", role: .destructive) { store.delete(item.id) }
+        }
         .onHover { isHovering in
             withAnimation(.easeOut(duration: 0.15)) { hovering = isHovering }
         }

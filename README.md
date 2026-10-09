@@ -10,6 +10,8 @@ A menu bar clipboard history for macOS. Every copy shows up in the list; click c
 open build/ClipStack.app
 ```
 
+The app icon is drawn by `scripts/make-icon.swift`; run `swift scripts/make-icon.swift` to regenerate `Resources/AppIcon.icns`.
+
 ## Using it
 
 - Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere.

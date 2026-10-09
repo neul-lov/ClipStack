@@ -139,21 +139,29 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 8)
                     .padding(.bottom, 8)
+                    // Fill the visible area so clicks and drags on the empty space below the clips land here.
+                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
+                    .contentShape(Rectangle())
                     .coordinateSpace(name: "clipList")
                     .onPreferenceChange(RowFramesKey.self) { rowFrames = $0 }
-                    // Dragging across clips selects (or, starting on a selected clip, deselects) them.
+                    // One gesture covers the whole list: a drag selects the clips in its range (or, starting
+                    // on a selected clip, deselects them); a click on empty space clears the selection.
+                    // Clicks on a clip are handled by the clip itself.
                     .simultaneousGesture(
-                        DragGesture(minimumDistance: 6, coordinateSpace: .named("clipList"))
+                        DragGesture(minimumDistance: 0, coordinateSpace: .named("clipList"))
                             .onChanged { value in
+                                guard hypot(value.translation.width, value.translation.height) >= 6 else { return }
                                 store.drag(across: clips(from: value.startLocation, to: value.location),
                                            startedOn: clip(at: value.startLocation))
                             }
-                            .onEnded { _ in store.endDrag() }
+                            .onEnded { value in
+                                let moved = hypot(value.translation.width, value.translation.height) >= 6
+                                if !moved && clip(at: value.startLocation) == nil {
+                                    store.tapEmptySpace()
+                                }
+                                store.endDrag()
+                            }
                     )
-                    // Fill the visible area so clicks on the empty space below the clips land here.
-                    .frame(minHeight: geometry.size.height, alignment: .top)
-                    .contentShape(Rectangle())
-                    .onTapGesture { store.tapEmptySpace() }
                 }
                 .scrollIndicators(.never)
                 .onChange(of: store.highlightedID) { _, id in

@@ -77,9 +77,14 @@ func render(size: CGFloat) -> NSBitmapImageRep {
     rim.lineWidth = 3 * s
     rim.stroke()
 
-    // Two frosted cards fanned out behind the front one: the stack of past copies.
+    // The clipboard group spans y 196...756; lift it so it sits in the middle of the tile.
+    let lift = NSAffineTransform()
+    lift.translateX(by: 0, yBy: 46 * s)
+    lift.concat()
+
+    // Two frosted cards fanned out evenly behind the front one: the stack of past copies.
     let cardRect = r(312, 196, 400, 520)
-    for (angle, alpha) in [(14.0, 0.22), (7.0, 0.38)] {
+    for (angle, alpha) in [(9.0, 0.3), (-9.0, 0.3)] {
         rotated(around: NSPoint(x: 512 * s, y: 300 * s), degrees: CGFloat(angle)) {
             withShadow(color(0x12086B, 0.25), blur: 24 * s, y: -8 * s) {
                 color(0xFFFFFF, CGFloat(alpha)).setFill()

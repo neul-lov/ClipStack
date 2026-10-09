@@ -52,6 +52,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
+    // Opening the app again (from Launchpad, Spotlight or Finder) shows the history.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if !popover.isShown { showPopover() }
+        return false
+    }
+
     @objc private func togglePopover() {
         if popover.isShown {
             popover.performClose(nil)

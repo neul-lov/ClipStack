@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// The app in front before the popover opened; pastes go back to it.
     private var previousApp: NSRunningApplication?
     private var askedForAccessibility = false
+    private let returnPaster = ReturnPaster()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // New status items land at the far left of the menu bar, where menu bar managers hide them.
@@ -48,6 +49,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
         store.onRequestClose = { [weak self] in self?.popover.performClose(nil) }
         store.onRequestPaste = { [weak self] in self?.pasteIntoPreviousApp() }
+        store.onRequestPasteOnReturn = { [weak self] in self?.pasteOnNextReturn() }
+        returnPaster.onStateChange = { [weak self] waiting in self?.showWaitingForReturn(waiting) }
         store.start()
         #if DEBUG
         if CommandLine.arguments.contains("--demo") {
@@ -56,7 +59,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         #endif
         // Ask for Accessibility up front so the first paste already works.
-        if store.pasteAfterCopy { requestAccessibilityIfNeeded() }
+        if store.pasteMode != .off { requestAccessibilityIfNeeded() }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -79,6 +82,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
 
     private func showPopover() {
         guard let button = statusItem.button else { return }
+        returnPaster.disarm()
         store.didOpen()
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previousApp = front }
@@ -116,6 +120,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         askedForAccessibility = true
         let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue(): true] as CFDictionary
         AXIsProcessTrustedWithOptions(options)
+    }
+
+    private func pasteOnNextReturn() {
+        popover.performClose(nil)
+        // Without Accessibility access ⏎ can't be watched; the clip is still on the clipboard.
+        if !returnPaster.arm() { requestAccessibilityIfNeeded() }
+    }
+
+    /// While ClipStack waits for ⏎, the menu bar icon turns into a return arrow.
+    private func showWaitingForReturn(_ waiting: Bool) {
+        let symbol = waiting ? "arrow.turn.down.left" : "list.clipboard"
+        let image = NSImage(systemSymbolName: symbol, accessibilityDescription: waiting ? "Press Return to paste" : "ClipStack")
+        image?.isTemplate = true
+        statusItem.button?.image = image
+        statusItem.button?.toolTip = waiting ? "Press ⏎ in a text field to paste" : nil
     }
 
     private func pasteIntoPreviousApp() {

@@ -140,6 +140,25 @@ extension Date {
     }
 }
 
+enum PasteMode: String, CaseIterable, Identifiable {
+    /// Only copy.
+    case off
+    /// Paste into the app that was in front before the history opened.
+    case immediately
+    /// Paste at the next ⏎ pressed in a text field, in any app.
+    case onNextReturn
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .off: "Just Copy"
+        case .immediately: "Paste Right Away"
+        case .onNextReturn: "Paste on Next ⏎"
+        }
+    }
+}
+
 enum Retention: String, CaseIterable, Identifiable {
     case forever
     case day

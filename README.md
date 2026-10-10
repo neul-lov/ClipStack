@@ -29,7 +29,10 @@ xattr -dr com.apple.quarantine /Applications/ClipStack.app
 - Click the clipboard icon in the menu bar to open the history.
 - Click clips, or drag across them, to select them; the number on each shows its place in the order. Double-click a clip to copy just that one. Click empty space to clear the selection.
 - ⏎ or **Copy N Items** copies the selection back to back with nothing in between (add line breaks, spaces or commas under the ••• menu). The footer shows the character count, spaces included.
-- After copying, ClipStack pastes into the app you were using (needs Accessibility access once; turn off with **Paste After Copying** in the ••• menu).
+- **After Copying** in the ••• menu decides what happens next (all but Just Copy need Accessibility access once):
+  - **Paste Right Away** (default) pastes into the app you were using.
+  - **Paste on Next ⏎** waits up to 10 seconds: click into any text field and press ⏎ to paste there. The menu bar icon turns into a return arrow while it waits. Typing anything else, or esc, cancels it, so a ⏎ that sends what you typed is never taken over. Password fields, non-empty fields and terminals are left alone.
+  - **Just Copy** only puts the clips on the clipboard.
 - The wand button next to **Copy**, or right-clicking a clip, offers **Copy As**: trim spaces, single line, UPPERCASE, lowercase, Title Case, or remove quotes.
 - **Keep History** in the ••• menu removes unpinned clips after 1 day, 1 week, or 1 month.
 - Hover a clip to pin it, copy only that clip, or delete it.

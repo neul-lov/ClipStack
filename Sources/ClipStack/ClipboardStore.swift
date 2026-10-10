@@ -20,8 +20,8 @@ final class ClipboardStore: ObservableObject {
         didSet { UserDefaults.standard.set(separator.rawValue, forKey: "separator") }
     }
     @Published var launchAtLogin: Bool = SMAppService.mainApp.status == .enabled
-    @Published var pasteAfterCopy: Bool {
-        didSet { UserDefaults.standard.set(pasteAfterCopy, forKey: "pasteAfterCopy") }
+    @Published var pasteMode: PasteMode {
+        didSet { UserDefaults.standard.set(pasteMode.rawValue, forKey: "pasteMode") }
     }
     @Published var retention: Retention {
         didSet {
@@ -37,6 +37,8 @@ final class ClipboardStore: ObservableObject {
     @Published private(set) var historySaved = true
 
     var onRequestClose: (() -> Void)?
+    /// Closes the popover and waits for the next ⏎ in a text field to paste there.
+    var onRequestPasteOnReturn: (() -> Void)?
     /// Demo mode (debug builds only) uses sample clips and never touches the real history or clipboard.
     private(set) var isDemo = false
     /// Closes the popover and pastes into the app that was in front before it opened.
@@ -71,7 +73,13 @@ final class ClipboardStore: ObservableObject {
 
     init() {
         separator = JoinSeparator(rawValue: UserDefaults.standard.string(forKey: "separator") ?? "") ?? .nothing
-        pasteAfterCopy = UserDefaults.standard.object(forKey: "pasteAfterCopy") as? Bool ?? true
+        if let saved = UserDefaults.standard.string(forKey: "pasteMode").flatMap(PasteMode.init(rawValue:)) {
+            pasteMode = saved
+        } else {
+            // Versions before 1.2 stored an on/off switch.
+            let pasted = UserDefaults.standard.object(forKey: "pasteAfterCopy") as? Bool ?? true
+            pasteMode = pasted ? .immediately : .off
+        }
         retention = Retention(rawValue: UserDefaults.standard.string(forKey: "retention") ?? "") ?? .forever
         skipSecrets = UserDefaults.standard.object(forKey: "skipSecrets") as? Bool ?? true
         lastChangeCount = NSPasteboard.general.changeCount
@@ -362,7 +370,7 @@ final class ClipboardStore: ObservableObject {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             toast = message
         }
-        let paste = pasteAfterCopy
+        let mode = pasteMode
         let reset = DispatchWorkItem { [weak self] in
             withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
                 self?.toast = nil
@@ -374,12 +382,12 @@ final class ClipboardStore: ObservableObject {
             return
         }
         schedule(DispatchWorkItem { [weak self] in
-            if paste {
-                self?.onRequestPaste?()
-            } else {
-                self?.onRequestClose?()
+            switch mode {
+            case .immediately: self?.onRequestPaste?()
+            case .onNextReturn: self?.onRequestPasteOnReturn?()
+            case .off: self?.onRequestClose?()
             }
-        }, after: paste ? 0.35 : 0.55)
+        }, after: mode == .immediately ? 0.35 : 0.55)
         schedule(reset, after: 0.9)
     }
 

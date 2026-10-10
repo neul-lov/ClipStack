@@ -74,7 +74,9 @@ struct ContentView: View {
             Picker("Keep History", selection: $store.retention) {
                 ForEach(Retention.allCases) { Text($0.title).tag($0) }
             }
-            Toggle("Paste After Copying", isOn: $store.pasteAfterCopy)
+            Picker("After Copying", selection: $store.pasteMode) {
+                ForEach(PasteMode.allCases) { Text($0.title).tag($0) }
+            }
             Toggle("Skip Passwords & Keys", isOn: $store.skipSecrets)
             Toggle("Launch at Login", isOn: Binding(
                 get: { store.launchAtLogin },

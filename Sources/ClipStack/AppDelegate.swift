@@ -1,5 +1,6 @@
 import AppKit
 import Carbon
+import Combine
 import SwiftUI
 
 @main
@@ -25,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// The app in front before the popover opened; pastes go back to it.
     private var previousApp: NSRunningApplication?
     private var askedForAccessibility = false
+    private var shortcutObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // New status items land at the far left of the menu bar, where menu bar managers hide them.
@@ -59,10 +61,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // Ask for Accessibility up front so the first paste already works.
         if store.pasteAfterCopy { requestAccessibilityIfNeeded() }
 
-        // Control + Command + V opens the history from anywhere.
-        hotKey = HotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: UInt32(cmdKey | controlKey)) { [weak self] in
+        // The chosen shortcut (⌃⌘V by default) opens the history from anywhere.
+        shortcutObserver = store.$shortcut.sink { [weak self] shortcut in
+            self?.registerShortcut(shortcut)
+        }
+    }
+
+    private func registerShortcut(_ shortcut: Shortcut) {
+        hotKey = nil
+        guard let modifiers = shortcut.modifiers else {
+            store.shortcutUnavailable = false
+            return
+        }
+        hotKey = HotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: modifiers) { [weak self] in
             MainActor.assumeIsolated { self?.togglePopover() }
         }
+        store.shortcutUnavailable = hotKey == nil
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        store.flushSave()
     }
 
     // Opening the app again (from Launchpad, Spotlight or Finder) shows the history.

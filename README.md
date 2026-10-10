@@ -26,7 +26,7 @@ xattr -dr com.apple.quarantine /Applications/ClipStack.app
 
 ## Using it
 
-- Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere.
+- Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere. You can pick a different shortcut under **Open Shortcut** in the ••• menu; if another app already uses it, the footer says so.
 - Click clips, or drag across them, to select them; the number on each shows its place in the order. Double-click a clip to copy just that one. Click empty space to clear the selection.
 - ⏎ or **Copy N Items** copies the selection back to back with nothing in between (add line breaks, spaces or commas under the ••• menu). The footer shows the character count, spaces included.
 - After copying, ClipStack pastes into the app you were using (needs Accessibility access once; turn off with **Paste After Copying** in the ••• menu).
@@ -35,7 +35,12 @@ xattr -dr com.apple.quarantine /Applications/ClipStack.app
 - Hover a clip to pin it, copy only that clip, or delete it.
 - Keyboard: ↑ ↓ move, ⇥ select, ⏎ copy, ⌘P pin, ⌘⌫ delete, esc clears the selection, then the search, then closes.
 
-Password manager copies are skipped. History stays on your Mac in `~/Library/Application Support/ClipStack/history.json` (200 clips; pinned ones never expire).
+## Privacy
+
+- History stays on your Mac, encrypted (AES-GCM) in `~/Library/Application Support/ClipStack/history.dat`. The key lives in your login keychain; after an update macOS may ask once whether ClipStack can use it.
+- Copies that password managers mark as private are never recorded. With **Skip Passwords & Keys** on (the default), text that looks like a secret is skipped too: API keys and tokens (OpenAI, Anthropic, GitHub, AWS, Google, Slack, Stripe, GitLab, JWTs), private keys, `password: …` or `API_KEY=…` lines, and long random-looking strings. Detection is pattern-based, so it can miss unusual formats.
+- If the history can't be read, the file is set aside as `history-unreadable-….dat` rather than overwritten. If keychain access is denied, ClipStack runs without saving for that session.
+- The list keeps 200 clips (pinned ones never expire). Text longer than about a million characters isn't recorded.
 
 ## Build from source
 

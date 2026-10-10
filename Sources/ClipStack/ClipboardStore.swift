@@ -29,6 +29,17 @@ final class ClipboardStore: ObservableObject {
             pruneExpired()
         }
     }
+    /// Leave out copies that look like passwords, API keys or tokens.
+    @Published var skipSecrets: Bool {
+        didSet { UserDefaults.standard.set(skipSecrets, forKey: "skipSecrets") }
+    }
+    @Published var shortcut: Shortcut {
+        didSet { UserDefaults.standard.set(shortcut.rawValue, forKey: "shortcut") }
+    }
+    /// Set when the chosen shortcut couldn't be registered, usually because another app uses it.
+    @Published var shortcutUnavailable = false
+    /// False when the history couldn't be unlocked; the session then runs without saving.
+    @Published private(set) var historySaved = true
 
     var onRequestClose: (() -> Void)?
     /// Demo mode (debug builds only) uses sample clips and never touches the real history or clipboard.
@@ -38,10 +49,15 @@ final class ClipboardStore: ObservableObject {
 
     private let maxItems = 200
     private let maxImageBytes = 8 * 1024 * 1024
+    /// Longer copies (about 1 MB of text) are left out to keep the list and the history file fast.
+    private let maxTextLength = 1_000_000
     private let pasteboard = NSPasteboard.general
     private var lastChangeCount: Int
     private var timer: Timer?
     private var saveWork: DispatchWorkItem?
+    private let saveQueue = DispatchQueue(label: "ClipStack.save", qos: .utility)
+    /// Pending close/paste and toast-clearing steps from the last copy, cancelled by the next one.
+    private var copyFollowUps: [DispatchWorkItem] = []
     private var thumbnails: [UUID: NSImage] = [:]
     private var appIcons: [String: NSImage] = [:]
     private var lastTap: (id: UUID, time: Date, selectionBefore: [UUID])?
@@ -62,8 +78,16 @@ final class ClipboardStore: ObservableObject {
         separator = JoinSeparator(rawValue: UserDefaults.standard.string(forKey: "separator") ?? "") ?? .nothing
         pasteAfterCopy = UserDefaults.standard.object(forKey: "pasteAfterCopy") as? Bool ?? true
         retention = Retention(rawValue: UserDefaults.standard.string(forKey: "retention") ?? "") ?? .forever
+        skipSecrets = UserDefaults.standard.object(forKey: "skipSecrets") as? Bool ?? true
+        shortcut = Shortcut(rawValue: UserDefaults.standard.string(forKey: "shortcut") ?? "") ?? .controlCommandV
         lastChangeCount = NSPasteboard.general.changeCount
-        items = Self.load()
+        switch HistoryFile.load() {
+        case .loaded(let loaded):
+            items = loaded
+            if HistoryFile.hasPlainTextHistory { scheduleSave() }
+        case .locked:
+            historySaved = false
+        }
     }
 
     // MARK: - Derived
@@ -117,6 +141,8 @@ final class ClipboardStore: ObservableObject {
 
         if let string = pasteboard.string(forType: .string),
            !string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            guard string.utf16.count <= maxTextLength else { return }
+            if skipSecrets, SecretDetector.looksSecret(string) { return }
             insert(ClipItem(text: string, source: source)) { $0.text == string }
         } else if let data = imagePNGData(), data.count <= maxImageBytes {
             insert(ClipItem(imageData: data, source: source)) { $0.imageData == data }
@@ -206,7 +232,6 @@ final class ClipboardStore: ObservableObject {
         guard next != selection else { return }
         withAnimation(.spring(response: 0.32, dampingFraction: 0.72)) {
             selection = next
-            if let last = ids.last { highlightedID = last }
         }
     }
 
@@ -282,9 +307,13 @@ final class ClipboardStore: ObservableObject {
         finishCopy(message: message)
     }
 
-    /// The selection's text as it will be copied, or nil when only images are selected.
-    var selectedText: String? {
-        joinedText(of: selection.compactMap { id in items.first { $0.id == id } })
+    /// Characters the selection's text will have once joined, or nil when only images are selected.
+    /// Uses each clip's cached counts, so it stays cheap for long clips.
+    var selectedCharCount: Int? {
+        let texts = selection.compactMap { id in items.first { $0.id == id } }.filter { $0.text != nil }
+        guard !texts.isEmpty else { return nil }
+        if texts.count == 1 { return texts[0].charCount }
+        return texts.reduce(0) { $0 + $1.joinedCharCount } + separator.value.count * (texts.count - 1)
     }
 
     private func joinedText(of chosen: [ClipItem]) -> String? {
@@ -297,7 +326,11 @@ final class ClipboardStore: ObservableObject {
 
     /// Character count including spaces and line breaks.
     static func charCount(_ text: String) -> String {
-        text.count == 1 ? "1 char" : "\(text.count) chars"
+        charCountLabel(text.count)
+    }
+
+    static func charCountLabel(_ count: Int) -> String {
+        count == 1 ? "1 char" : "\(count) chars"
     }
 
     func copy(_ item: ClipItem, transform: TextTransform? = nil) {
@@ -329,31 +362,36 @@ final class ClipboardStore: ObservableObject {
     }
 
     private func finishCopy(message: String) {
+        // A new copy replaces the previous one's pending steps, so they can't clear its toast or selection.
+        copyFollowUps.forEach { $0.cancel() }
+        copyFollowUps = []
         withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
             toast = message
         }
         let paste = pasteAfterCopy
-        if isDemo {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) { [weak self] in
-                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
-                    self?.toast = nil
-                    self?.selection.removeAll()
-                }
+        let reset = DispatchWorkItem { [weak self] in
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                self?.toast = nil
+                self?.selection.removeAll()
             }
+        }
+        if isDemo {
+            schedule(reset, after: 1.6)
             return
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + (paste ? 0.35 : 0.55)) { [weak self] in
+        schedule(DispatchWorkItem { [weak self] in
             if paste {
                 self?.onRequestPaste?()
             } else {
                 self?.onRequestClose?()
             }
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
-            guard let self else { return }
-            self.toast = nil
-            self.selection.removeAll()
-        }
+        }, after: paste ? 0.35 : 0.55)
+        schedule(reset, after: 0.9)
+    }
+
+    private func schedule(_ work: DispatchWorkItem, after delay: TimeInterval) {
+        copyFollowUps.append(work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     // MARK: - Editing
@@ -436,28 +474,31 @@ final class ClipboardStore: ObservableObject {
 
     // MARK: - Persistence
 
-    private static var storeURL: URL {
-        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("ClipStack", isDirectory: true)
-        try? FileManager.default.createDirectory(at: base, withIntermediateDirectories: true)
-        return base.appendingPathComponent("history.json")
-    }
-
-    private static func load() -> [ClipItem] {
-        guard let data = try? Data(contentsOf: storeURL) else { return [] }
-        return (try? JSONDecoder().decode([ClipItem].self, from: data)) ?? []
-    }
-
     private func scheduleSave() {
-        guard !isDemo else { return }
+        guard !isDemo, historySaved else { return }
         saveWork?.cancel()
         let snapshot = items
         let work = DispatchWorkItem {
-            guard let data = try? JSONEncoder().encode(snapshot) else { return }
-            try? data.write(to: Self.storeURL, options: .atomic)
+            do {
+                try HistoryFile.save(snapshot)
+            } catch {
+                NSLog("ClipStack: saving history failed: \(error)")
+            }
         }
         saveWork = work
-        DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 1, execute: work)
+        saveQueue.asyncAfter(deadline: .now() + 1, execute: work)
+    }
+
+    /// Writes any pending change right away. Called when the app quits.
+    func flushSave() {
+        guard let saveWork, !saveWork.isCancelled else { return }
+        saveWork.cancel()
+        self.saveWork = nil
+        guard !isDemo, historySaved else { return }
+        let snapshot = items
+        saveQueue.sync {
+            try? HistoryFile.save(snapshot)
+        }
     }
 }
 

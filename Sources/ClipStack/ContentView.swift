@@ -7,6 +7,11 @@ struct ContentView: View {
     @ObservedObject var store: ClipboardStore
     @FocusState private var searchFocused: Bool
     @State private var rowFrames: [UUID: CGRect] = [:]
+    /// How far the list is scrolled, so pointer positions in the visible area map onto rows.
+    @State private var scrollOffset: CGFloat = 0
+    @State private var dragStart: CGPoint?
+    @State private var pointerInViewport: CGFloat = 0
+    @StateObject private var autoScroller = DragAutoScroller()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,10 +45,16 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 0) {
                 Text("ClipStack")
                     .font(.system(size: 15, weight: .bold))
-                Text(store.items.isEmpty ? "Waiting for your first copy" : "\(store.items.count) clips")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .contentTransition(.numericText())
+                if store.historySaved {
+                    Text(store.items.isEmpty ? "Waiting for your first copy" : "\(store.items.count) clips")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.numericText())
+                } else {
+                    Text("Not saving: keychain access was denied")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundStyle(.orange)
+                }
             }
             Spacer()
             settingsMenu
@@ -63,7 +74,11 @@ struct ContentView: View {
             Picker("Keep History", selection: $store.retention) {
                 ForEach(Retention.allCases) { Text($0.title).tag($0) }
             }
+            Picker("Open Shortcut", selection: $store.shortcut) {
+                ForEach(Shortcut.allCases) { Text($0.title).tag($0) }
+            }
             Toggle("Paste After Copying", isOn: $store.pasteAfterCopy)
+            Toggle("Skip Passwords & Keys", isOn: $store.skipSecrets)
             Toggle("Launch at Login", isOn: Binding(
                 get: { store.launchAtLogin },
                 set: { store.setLaunchAtLogin($0) }
@@ -127,49 +142,87 @@ struct ContentView: View {
             emptyState
         } else {
             GeometryReader { geometry in
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 4, pinnedViews: []) {
-                        if !pinned.isEmpty {
-                            sectionTitle("Pinned", icon: "pin.fill")
-                            ForEach(pinned) { row($0) }
-                            if !recent.isEmpty { sectionTitle("Recent", icon: "clock") }
-                        }
-                        ForEach(recent) { row($0) }
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        listContent(pinned: pinned, recent: recent, viewport: geometry.size.height, proxy: proxy)
                     }
-                    .padding(.horizontal, 8)
-                    .padding(.bottom, 8)
-                    // Fill the visible area so clicks and drags on the empty space below the clips land here.
-                    .frame(maxWidth: .infinity, minHeight: geometry.size.height, alignment: .top)
-                    .contentShape(Rectangle())
-                    .coordinateSpace(name: "clipList")
-                    .onPreferenceChange(RowFramesKey.self) { rowFrames = $0 }
-                    // One gesture covers the whole list: a drag selects the clips in its range (or, starting
-                    // on a selected clip, deselects them); a click on empty space clears the selection.
-                    // Clicks on a clip are handled by the clip itself.
-                    .simultaneousGesture(
-                        DragGesture(minimumDistance: 0, coordinateSpace: .named("clipList"))
-                            .onChanged { value in
-                                guard hypot(value.translation.width, value.translation.height) >= 6 else { return }
-                                store.drag(across: clips(from: value.startLocation, to: value.location),
-                                           startedOn: clip(at: value.startLocation))
-                            }
-                            .onEnded { value in
-                                let moved = hypot(value.translation.width, value.translation.height) >= 6
-                                if !moved && clip(at: value.startLocation) == nil {
-                                    store.tapEmptySpace()
-                                }
-                                store.endDrag()
-                            }
-                    )
-                }
-                .scrollIndicators(.never)
-                .onChange(of: store.highlightedID) { _, id in
-                    guard let id else { return }
-                    withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                    .coordinateSpace(name: "viewport")
+                    .scrollIndicators(.never)
+                    .onChange(of: store.highlightedID) { _, id in
+                        guard let id, dragStart == nil else { return }
+                        withAnimation(.easeOut(duration: 0.15)) { proxy.scrollTo(id) }
+                    }
                 }
             }
+        }
+    }
+
+    private func listContent(pinned: [ClipItem], recent: [ClipItem], viewport: CGFloat,
+                             proxy: ScrollViewProxy) -> some View {
+        // A plain VStack (not lazy) so every row has a frame, which drag selection needs. History is
+        // capped at a few hundred clips with cached previews, so this stays cheap.
+        VStack(spacing: 4) {
+            if !pinned.isEmpty {
+                sectionTitle("Pinned", icon: "pin.fill")
+                ForEach(pinned) { row($0) }
+                if !recent.isEmpty { sectionTitle("Recent", icon: "clock") }
             }
+            ForEach(recent) { row($0) }
+        }
+        .padding(.horizontal, 8)
+        .padding(.bottom, 8)
+        // Fill the visible area so clicks and drags on the empty space below the clips land here.
+        .frame(maxWidth: .infinity, minHeight: viewport, alignment: .top)
+        .contentShape(Rectangle())
+        .coordinateSpace(name: "clipList")
+        .background(GeometryReader { geometry in
+            Color.clear.preference(key: ScrollOffsetKey.self, value: -geometry.frame(in: .named("viewport")).minY)
+        })
+        .onPreferenceChange(ScrollOffsetKey.self) { scrollOffset = $0 }
+        .onPreferenceChange(RowFramesKey.self) { rowFrames = $0 }
+        // One gesture covers the whole list: a drag selects the clips in its range (or, starting on a
+        // selected clip, deselects them) and scrolls when it nears the top or bottom edge; a click on
+        // empty space clears the selection. Clicks on a clip are handled by the clip itself.
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 0, coordinateSpace: .named("clipList"))
+                .onChanged { value in
+                    guard hypot(value.translation.width, value.translation.height) >= 6 else { return }
+                    dragStart = value.startLocation
+                    pointerInViewport = value.location.y - scrollOffset
+                    selectDragged(to: value.location.y)
+                    let edge: CGFloat = 36
+                    let direction = pointerInViewport < edge ? -1 : (pointerInViewport > viewport - edge ? 1 : 0)
+                    autoScroller.step = { autoScroll(direction, viewport: viewport, proxy: proxy) }
+                    autoScroller.run(direction != 0)
+                }
+                .onEnded { value in
+                    autoScroller.run(false)
+                    let moved = hypot(value.translation.width, value.translation.height) >= 6
+                    if !moved && clip(at: value.startLocation) == nil {
+                        store.tapEmptySpace()
+                    }
+                    dragStart = nil
+                    store.endDrag()
+                }
+        )
+    }
+
+    private func selectDragged(to y: CGFloat) {
+        guard let dragStart else { return }
+        store.drag(across: clips(from: dragStart, to: CGPoint(x: dragStart.x, y: y)), startedOn: clip(at: dragStart))
+    }
+
+    /// Scrolls one row past the edge the pointer is holding, then extends the selection to whatever
+    /// row is now under the pointer.
+    private func autoScroll(_ direction: Int, viewport: CGFloat, proxy: ScrollViewProxy) {
+        let rows = rowFrames.sorted { $0.value.minY < $1.value.minY }
+        if direction > 0, let next = rows.first(where: { $0.value.maxY > scrollOffset + viewport + 1 }) {
+            withAnimation(.linear(duration: 0.08)) { proxy.scrollTo(next.key, anchor: .bottom) }
+        } else if direction < 0, let previous = rows.last(where: { $0.value.minY < scrollOffset - 1 }) {
+            withAnimation(.linear(duration: 0.08)) { proxy.scrollTo(previous.key, anchor: .top) }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.09) {
+            selectDragged(to: pointerInViewport + scrollOffset)
         }
     }
 
@@ -242,7 +295,14 @@ struct ContentView: View {
                     hint("Click", "select")
                     hint("Click ×2", "copy")
                     Spacer()
-                    hint("⌃⌘V", "open")
+                    if store.shortcutUnavailable {
+                        Text("\(store.shortcut.title) is taken · change it in •••")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(.orange)
+                            .lineLimit(1)
+                    } else if store.shortcut != .off {
+                        hint(store.shortcut.title, "open")
+                    }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
@@ -258,8 +318,8 @@ struct ContentView: View {
                     }
                     .buttonStyle(PressableStyle())
 
-                    if let text = store.selectedText {
-                        Text(ClipboardStore.charCount(text))
+                    if let count = store.selectedCharCount {
+                        Text(ClipboardStore.charCountLabel(count))
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(.secondary)
                             .monospacedDigit()
@@ -375,5 +435,31 @@ private struct RowFramesKey: PreferenceKey {
     static let defaultValue: [UUID: CGRect] = [:]
     static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
         value.merge(nextValue()) { $1 }
+    }
+}
+
+private struct ScrollOffsetKey: PreferenceKey {
+    static let defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
+/// Repeats a step while a drag holds the pointer near the top or bottom of the list.
+@MainActor
+final class DragAutoScroller: ObservableObject {
+    var step: (() -> Void)?
+    private var timer: Timer?
+
+    func run(_ active: Bool) {
+        guard active else {
+            timer?.invalidate()
+            timer = nil
+            return
+        }
+        guard timer == nil else { return }
+        timer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.step?() }
+        }
     }
 }

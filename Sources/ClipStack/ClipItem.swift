@@ -8,12 +8,26 @@ struct ClipItem: Identifiable, Codable, Equatable {
 
     let id: UUID
     var kind: Kind
-    var text: String?
+    var text: String? {
+        didSet { updateDerived() }
+    }
     var imageData: Data?
     var date: Date
     var sourceBundleID: String?
     var sourceAppName: String?
     var pinned: Bool
+
+    // Worked out once per clip so rows don't rescan long text on every render. Not stored on disk.
+    /// Up to four non-empty lines from the start of the text.
+    private(set) var preview = ""
+    /// Characters, including spaces and line breaks.
+    private(set) var charCount = 0
+    /// Characters without line breaks at either end, which is how clips are joined.
+    private(set) var joinedCharCount = 0
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, text, imageData, date, sourceBundleID, sourceAppName, pinned
+    }
 
     init(text: String, source: NSRunningApplication?) {
         id = UUID()
@@ -24,6 +38,7 @@ struct ClipItem: Identifiable, Codable, Equatable {
         sourceBundleID = source?.bundleIdentifier
         sourceAppName = source?.localizedName
         pinned = false
+        updateDerived()
     }
 
     init(imageData: Data, source: NSRunningApplication?) {
@@ -37,12 +52,39 @@ struct ClipItem: Identifiable, Codable, Equatable {
         pinned = false
     }
 
-    /// Single-line-friendly preview: trims surrounding whitespace and collapses long runs of blank lines.
-    var preview: String {
-        guard let text else { return "" }
-        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lines = trimmed.split(separator: "\n", omittingEmptySubsequences: true)
-        return lines.prefix(4).joined(separator: "\n")
+    /// Only the content is required; every other field falls back to a default, so history written
+    /// by an older or newer version still loads.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        text = try? container.decodeIfPresent(String.self, forKey: .text)
+        imageData = try? container.decodeIfPresent(Data.self, forKey: .imageData)
+        guard text != nil || imageData != nil else {
+            throw DecodingError.dataCorruptedError(forKey: .text, in: container, debugDescription: "Clip has no content")
+        }
+        id = (try? container.decodeIfPresent(UUID.self, forKey: .id)) ?? UUID()
+        kind = (try? container.decodeIfPresent(Kind.self, forKey: .kind)) ?? (text != nil ? .text : .image)
+        date = (try? container.decodeIfPresent(Date.self, forKey: .date)) ?? Date()
+        sourceBundleID = try? container.decodeIfPresent(String.self, forKey: .sourceBundleID)
+        sourceAppName = try? container.decodeIfPresent(String.self, forKey: .sourceAppName)
+        pinned = (try? container.decodeIfPresent(Bool.self, forKey: .pinned)) ?? false
+        updateDerived()
+    }
+
+    private mutating func updateDerived() {
+        guard let text else {
+            preview = ""
+            charCount = 0
+            joinedCharCount = 0
+            return
+        }
+        preview = text.prefix(4000)
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .prefix(4)
+            .joined(separator: "\n")
+        charCount = text.count
+        joinedCharCount = text.trimmingCharacters(in: .newlines).count
     }
 
     func matches(_ query: String) -> Bool {
@@ -158,6 +200,8 @@ enum TextTransform: String, CaseIterable, Identifiable {
         }
     }
 
+    private static let word = try! NSRegularExpression(pattern: "[\\p{L}\\p{N}'’]+")
+
     func apply(to text: String) -> String {
         switch self {
         case .trimSpaces:
@@ -175,9 +219,23 @@ enum TextTransform: String, CaseIterable, Identifiable {
         case .lowercase:
             return text.lowercased()
         case .titleCase:
-            return text.capitalized
+            // Capitalize words that are all lowercase; words like iPhone, macOS or NASA stay as they are.
+            var result = text
+            let matches = Self.word.matches(in: text, range: NSRange(text.startIndex..., in: text))
+            for match in matches.reversed() {
+                guard let range = Range(match.range, in: result) else { continue }
+                let word = result[range]
+                guard !word.contains(where: \.isUppercase),
+                      let first = word.firstIndex(where: \.isLetter) else { continue }
+                result.replaceSubrange(first...first, with: word[first].uppercased())
+            }
+            return result
         case .removeQuotes:
-            return text.replacingOccurrences(of: "[\"'`“”‘’«»]", with: "", options: .regularExpression)
+            // Quote marks around text go; apostrophes inside words (don't, it's) stay.
+            return text
+                .replacingOccurrences(of: "[\"`“”«»„]", with: "", options: .regularExpression)
+                .replacingOccurrences(of: "(?<![\\p{L}\\p{N}])['‘’]|['‘’](?![\\p{L}\\p{N}])", with: "",
+                                      options: .regularExpression)
         }
     }
 }

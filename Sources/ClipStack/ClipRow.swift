@@ -119,8 +119,7 @@ struct ClipRow: View {
     private var detail: String? {
         switch item.kind {
         case .text:
-            let count = item.text?.count ?? 0
-            return count == 1 ? "1 char" : "\(count) chars"
+            return ClipboardStore.charCountLabel(item.charCount)
         case .image:
             guard let image = store.thumbnail(for: item) else { return nil }
             return "\(Int(image.size.width))×\(Int(image.size.height))"

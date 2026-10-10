@@ -33,11 +33,6 @@ final class ClipboardStore: ObservableObject {
     @Published var skipSecrets: Bool {
         didSet { UserDefaults.standard.set(skipSecrets, forKey: "skipSecrets") }
     }
-    @Published var shortcut: Shortcut {
-        didSet { UserDefaults.standard.set(shortcut.rawValue, forKey: "shortcut") }
-    }
-    /// Set when the chosen shortcut couldn't be registered, usually because another app uses it.
-    @Published var shortcutUnavailable = false
     /// False when the history couldn't be unlocked; the session then runs without saving.
     @Published private(set) var historySaved = true
 
@@ -79,7 +74,6 @@ final class ClipboardStore: ObservableObject {
         pasteAfterCopy = UserDefaults.standard.object(forKey: "pasteAfterCopy") as? Bool ?? true
         retention = Retention(rawValue: UserDefaults.standard.string(forKey: "retention") ?? "") ?? .forever
         skipSecrets = UserDefaults.standard.object(forKey: "skipSecrets") as? Bool ?? true
-        shortcut = Shortcut(rawValue: UserDefaults.standard.string(forKey: "shortcut") ?? "") ?? .controlCommandV
         lastChangeCount = NSPasteboard.general.changeCount
         switch HistoryFile.load() {
         case .loaded(let loaded):

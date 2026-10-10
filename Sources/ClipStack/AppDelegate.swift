@@ -1,6 +1,5 @@
 import AppKit
 import Carbon
-import Combine
 import SwiftUI
 
 @main
@@ -20,13 +19,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let store = ClipboardStore()
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
-    private var hotKey: HotKey?
     private var keyMonitor: Any?
     private var outsideClickMonitor: Any?
     /// The app in front before the popover opened; pastes go back to it.
     private var previousApp: NSRunningApplication?
     private var askedForAccessibility = false
-    private var shortcutObserver: AnyCancellable?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         // New status items land at the far left of the menu bar, where menu bar managers hide them.
@@ -60,23 +57,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         #endif
         // Ask for Accessibility up front so the first paste already works.
         if store.pasteAfterCopy { requestAccessibilityIfNeeded() }
-
-        // The chosen shortcut (⌃⌘V by default) opens the history from anywhere.
-        shortcutObserver = store.$shortcut.sink { [weak self] shortcut in
-            self?.registerShortcut(shortcut)
-        }
-    }
-
-    private func registerShortcut(_ shortcut: Shortcut) {
-        hotKey = nil
-        guard let modifiers = shortcut.modifiers else {
-            store.shortcutUnavailable = false
-            return
-        }
-        hotKey = HotKey(keyCode: UInt32(kVK_ANSI_V), modifiers: modifiers) { [weak self] in
-            MainActor.assumeIsolated { self?.togglePopover() }
-        }
-        store.shortcutUnavailable = hotKey == nil
     }
 
     func applicationWillTerminate(_ notification: Notification) {

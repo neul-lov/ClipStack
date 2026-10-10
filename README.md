@@ -26,7 +26,7 @@ xattr -dr com.apple.quarantine /Applications/ClipStack.app
 
 ## Using it
 
-- Click the clipboard icon in the menu bar, or press ⌃⌘V anywhere. You can pick a different shortcut under **Open Shortcut** in the ••• menu; if another app already uses it, the footer says so.
+- Click the clipboard icon in the menu bar to open the history.
 - Click clips, or drag across them, to select them; the number on each shows its place in the order. Double-click a clip to copy just that one. Click empty space to clear the selection.
 - ⏎ or **Copy N Items** copies the selection back to back with nothing in between (add line breaks, spaces or commas under the ••• menu). The footer shows the character count, spaces included.
 - After copying, ClipStack pastes into the app you were using (needs Accessibility access once; turn off with **Paste After Copying** in the ••• menu).

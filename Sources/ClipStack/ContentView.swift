@@ -74,9 +74,6 @@ struct ContentView: View {
             Picker("Keep History", selection: $store.retention) {
                 ForEach(Retention.allCases) { Text($0.title).tag($0) }
             }
-            Picker("Open Shortcut", selection: $store.shortcut) {
-                ForEach(Shortcut.allCases) { Text($0.title).tag($0) }
-            }
             Toggle("Paste After Copying", isOn: $store.pasteAfterCopy)
             Toggle("Skip Passwords & Keys", isOn: $store.skipSecrets)
             Toggle("Launch at Login", isOn: Binding(
@@ -294,15 +291,8 @@ struct ContentView: View {
                 HStack(spacing: 14) {
                     hint("Click", "select")
                     hint("Click ×2", "copy")
+                    hint("⏎", "copy")
                     Spacer()
-                    if store.shortcutUnavailable {
-                        Text("\(store.shortcut.title) is taken · change it in •••")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(.orange)
-                            .lineLimit(1)
-                    } else if store.shortcut != .off {
-                        hint(store.shortcut.title, "open")
-                    }
                 }
                 .transition(.move(edge: .bottom).combined(with: .opacity))
             } else {
